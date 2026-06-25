@@ -170,6 +170,40 @@ ggplot(
 
 @fig-price-grad shows a positive overall relationship between average annual net price and graduation rate. Colleges with higher net prices generally have higher graduation rates. However, the points are widely scattered around the fitted line, so net price alone does not fully explain differences in graduation rates. This relationship indicates association, not causation. 
 
+```{r}
+q3_data <- college_clean |>
+  mutate(
+    grad_rate_group = ifelse(
+      graduation_rate < 0.50,
+      "Low",
+      ifelse(
+        graduation_rate < 0.75,
+        "Medium",
+        "High"
+      )
+    )
+  )
+
+ggplot(
+  q3_data,
+  aes(
+    x = institution_type,
+    y = net_price,
+    fill = grad_rate_group
+  )
+) +
+  geom_boxplot() +
+  labs(
+    title = "Average Annual Net Price by Institution Type and Graduation Rate Group",
+    x = "Institution Type",
+    y = "Average Annual Net Price ($)",
+    fill = "Graduation Rate Group"
+  ) +
+  theme_minimal()
+```
+@fig-public-private compares the average annual net price of public and private nonprofit colleges while grouping institutions by graduation-rate category (low, medium, and high). Private nonprofit colleges generally have higher average annual net prices than public colleges across all graduation-rate groups. Colleges in the high graduation-rate group also tend to have higher average annual net prices than those in the medium and low graduation-rate groups. Overall, these results suggest that institution type and graduation-rate group are both associated with differences in average annual net price.
+
+
 ## Preliminary Findings
 
 Our preliminary analysis shows that the average annual net price varies substantially across states. Rhode Island had the highest state average in the cleaned data set, and New Mexico had the lowest. We also observed a positive association between net price and graduation rate, though there was considerable variation among institutions. The public-versus-private comparison for our third research question will be completed for the final report.
