@@ -1,0 +1,180 @@
+---
+title: "College Costs and Student Outcomes"
+author: "Kena Bhatt, Victor Madu, Nihat Hasan"
+format: pdf
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+```
+
+## Introduction & Motivation
+
+College is a major financial investment, so students and families often consider both cost and the likelihood of completing a degree. However, paying more does not necessarily guarantee a better educational outcome, and college costs and graduation rates may vary across states and institutions.
+
+This project uses institution-level data from the U.S. Department of Education College Scorecard to compare average annual net price across states and examine its relationship with graduation rates. We use net price rather than advertised tuition because it more closely reflects student costs after grants and scholarships. To make the comparisons more meaningful, we focus on predominantly bachelor's degree-granting institutions rather than combining four-year colleges with trade schools and other very different institutions.
+
+## Research Questions
+
+1. How does the average annual net price vary across U.S. states?
+
+2. Is there a relationship between a college's average annual net price and its graduation rate?
+
+3. Do public and private nonprofit colleges differ in average annual net price and graduation rates?
+
+## Data Provenance
+
+The data come from the U.S. Department of Education's College Scorecard, a public database that contains information about colleges and universities in the United States. We use the most recent institution-level College Scorecard file. Each row represents a higher-education institution.
+
+The main variables used in this analysis are the institution name, state abbreviation, institution type, average annual net price, and graduation rate. The net-price variables report average student cost after grants and scholarships, while the graduation-rate variable measures the proportion of first-time, full-time students who complete within 150% of the expected time, typically six years at a four-year college.
+
+
+## Data Wrangling & Cleaning
+
+We imported the most recent institution-level College Scorecard CSV into R and selected variables for the analysis. These included institution name, state, institution type, predominant degree, average net price, and graduation rate.
+
+To improve comparability, we retained four-year schools that primarily grant bachelor's degrees and focused on public and private nonprofit institutions. We combined the public and private net-price columns into a single `net_price` variable, converted suppressed or non-numeric values to missing values, and removed rows missing the state, net price, or graduation rate required for the analysis.
+
+```{r data-cleaning}
+college_raw <- read_csv(
+  "data/Most-Recent-Cohorts-Institution.csv",
+  na = c("", "NA", "NULL", "*", "PrivacySuppressed"),
+  col_select = c(
+    INSTNM, STABBR, PREDDEG, ICLEVEL, CONTROL,
+    NPT4_PUB, NPT4_PRIV, C150_4
+  ))
+
+college_clean <- college_raw |>
+  filter(
+    PREDDEG == 3,
+    ICLEVEL == 1,
+    CONTROL %in% c(1, 2),
+    STABBR %in% state.abb
+  ) |>
+  mutate(
+    net_price = case_when(
+      CONTROL == 1 ~ parse_number(as.character(NPT4_PUB)),
+      CONTROL == 2 ~ parse_number(as.character(NPT4_PRIV))
+    ),
+    graduation_rate = parse_number(as.character(C150_4)),
+    institution_type = recode(
+      CONTROL,
+      `1` = "Public",
+      `2` = "Private nonprofit"
+    )
+  ) |>
+  select(
+    INSTNM,
+    STABBR,
+    institution_type,
+    net_price,
+    graduation_rate
+  ) |>
+  drop_na(STABBR, institution_type, net_price, graduation_rate)
+```
+
+## Exploratory Data Analysis
+### Average Net Price by State
+
+```{r state-net-price}
+#| label: fig-state-net-price
+#| fig-cap: "Average annual net price by state."
+#| fig-height: 8
+#| fig-width: 7
+#| tbl-pos: H
+
+state_net_price <- college_clean |>
+  group_by(STABBR) |>
+  summarize(
+    avg_net_price = mean(net_price),
+    .groups = "drop"
+  )
+
+ggplot(
+  state_net_price,
+  aes(
+    x = reorder(STABBR, avg_net_price),
+    y = avg_net_price
+  )
+) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    x = "State",
+    y = "Average annual net price ($)"
+  )
+```
+
+@fig-state-net-price compares the average annual net price across the 50 states. The results show noticeable differences between states. Rhode Island has the highest average net price in the cleaned data set, while New Mexico has the lowest.
+
+### States With the Highest & Lowest Average Net Prices
+
+```{r highest-net-price}
+#| label: tbl-highest-net-price
+#| tbl-cap: "Ten states with the highest average annual net prices."
+#| tbl-pos: H
+
+highest_states <- state_net_price |>
+  arrange(desc(avg_net_price)) |>
+  head(10)
+
+knitr::kable(
+  highest_states,
+  col.names = c("State", "Average Net Price ($)"),
+  digits = 0
+)
+```
+
+```{r}
+#| label: tbl-lowest-net-price
+#| tbl-cap: "Ten states with the lowest average annual net prices."
+#| tbl-pos: H
+
+lowest_states <- state_net_price |>
+  arrange(avg_net_price) |>
+  head(10)
+
+knitr::kable(
+  lowest_states,
+  col.names = c("State", "Average Net Price ($)"),
+  digits = 0
+)
+```
+
+@tbl-highest-net-price and @tbl-lowest-net-price make differences between states easier to identify. Rhode Island has an average annual net price of about \$32,260, compared with about $13,187 in New Mexico. These values are averages across the public and private nonprofit four-year institutions included in our analysis.
+
+### Net Price & Graduation Rate
+
+```{r price-grad-plot}
+#| label: fig-price-grad
+#| fig-cap: "Relationship between average annual net price and graduation rate."
+
+ggplot(
+  college_clean,
+  aes(
+    x = net_price,
+    y = graduation_rate
+  )
+) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(
+    x = "Average annual net price ($)",
+    y = "Graduation rate" 
+  )
+```
+
+@fig-price-grad shows a positive overall relationship between average annual net price and graduation rate. Colleges with higher net prices generally have higher graduation rates. However, the points are widely scattered around the fitted line, so net price alone does not fully explain differences in graduation rates. This relationship indicates association, not causation. 
+
+## Preliminary Findings
+
+Our preliminary analysis shows that the average annual net price varies substantially across states. Rhode Island had the highest state average in the cleaned data set, and New Mexico had the lowest. We also observed a positive association between net price and graduation rate, though there was considerable variation among institutions. The public-versus-private comparison for our third research question will be completed for the final report.
+
+## Code Appendix
+
+```{r codeAppend, ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
