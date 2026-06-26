@@ -170,6 +170,7 @@ ggplot(
 
 @fig-price-grad shows a positive overall relationship between average annual net price and graduation rate. Colleges with higher net prices generally have higher graduation rates. However, the points are widely scattered around the fitted line, so net price alone does not fully explain differences in graduation rates. This relationship indicates association, not causation. 
 
+#Average annual net price by institution type and graduation-rate group#
 ```{r}
 q3_data <- college_clean |>
   mutate(
