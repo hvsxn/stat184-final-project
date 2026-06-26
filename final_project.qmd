@@ -1,6 +1,7 @@
 ---
 title: "College Costs and Student Outcomes"
 author: "Kena Bhatt, Victor Madu, Nihat Hasan"
+date: "June 26, 2026"
 format: pdf
 execute:
   echo: false
@@ -28,7 +29,7 @@ This project uses institution-level data from the U.S. Department of Education C
 
 ## Data Provenance
 
-The data come from the U.S. Department of Education's College Scorecard, a public database that contains information about colleges and universities in the United States. We use the most recent institution-level College Scorecard file. Each row represents a higher-education institution.
+The data come from the U.S. Department of Education's College Scorecard, a public database that contains information about colleges and universities in the United States (U.S. Department of Education, n.d.). We use the most recent institution-level College Scorecard file. Each row represents a higher-education institution.
 
 The main variables used in this analysis are the institution name, state abbreviation, institution type, average annual net price, and graduation rate. The net-price variables report average student cost after grants and scholarships, while the graduation-rate variable measures the proportion of first-time, full-time students who complete within 150% of the expected time, typically six years at a four-year college.
 
@@ -39,7 +40,12 @@ We imported the most recent institution-level College Scorecard CSV into R and s
 
 To improve comparability, we retained four-year schools that primarily grant bachelor's degrees and focused on public and private nonprofit institutions. We combined the public and private net-price columns into a single `net_price` variable, converted suppressed or non-numeric values to missing values, and removed rows missing the state, net price, or graduation rate required for the analysis.
 
+We also investigated institutions with a reported graduation rate of exactly zero. There were 16 such institutions, all private nonprofit colleges. Many were specialized religious institutions or nontraditional campuses. Because these values were reported as numeric zeros rather than missing or privacy-suppressed, we retained them in the analysis. Still, we recognize that these unusual institutions may influence the overall relationship.
+
+After filtering by institution type and location, 1,755 institutions remained. Of these, 141 lacked net-price data, and 112 lacked graduation-rate data. Because some institutions were missing both variables, 153 were removed, leaving 1,602 in the cleaned data set used for analysis. No institutions were missing state or institution-type information.
+
 ```{r data-cleaning}
+# Import only the College Scorecard variables needed for the analysis
 college_raw <- read_csv(
   "data/Most-Recent-Cohorts-Institution.csv",
   na = c("", "NA", "NULL", "*", "PrivacySuppressed"),
@@ -48,7 +54,8 @@ college_raw <- read_csv(
     NPT4_PUB, NPT4_PRIV, C150_4
   ))
 
-college_clean <- college_raw |>
+# Keep comparable four-year bachelor's-degree public and nonprofit colleges
+college_filtered <- college_raw |>
   filter(
     PREDDEG == 3,
     ICLEVEL == 1,
@@ -73,86 +80,163 @@ college_clean <- college_raw |>
     institution_type,
     net_price,
     graduation_rate
-  ) |>
+  )
+
+# Remove institutions missing net-price or graduation-rate information
+college_clean <- college_filtered |>
   drop_na(STABBR, institution_type, net_price, graduation_rate)
 ```
 
 ## Exploratory Data Analysis
 ### Average Net Price by State
 
-```{r state-net-price}
-#| label: fig-state-net-price
-#| fig-cap: "Average annual net price by state."
+```{r fig-state-net-price}
+#| fig-cap: "Average annual net price by state and U.S. region."
 #| fig-height: 8
 #| fig-width: 7
 #| tbl-pos: H
 
+# Calculate each state's average net price and number of included colleges
 state_net_price <- college_clean |>
   group_by(STABBR) |>
   summarize(
     avg_net_price = mean(net_price),
+    number_of_colleges = n(),
     .groups = "drop"
+  ) |>
+  # Assign each state to one of four geographic regions
+  mutate(
+    region = case_when(
+      STABBR %in% c("CT", "ME", "MA", "NH", "RI", "VT", "NJ", "NY", "PA") ~ "Northeast",
+      STABBR %in% c("IL", "IN", "MI", "OH", "WI", "IA", "KS", "MN", "MO", "NE", "ND", "SD") ~ "Midwest",
+      STABBR %in% c("DE", "FL", "GA", "MD", "NC", "SC", "VA", "DC", "WV",
+                    "AL", "KY", "MS", "TN", "AR", "LA", "OK", "TX") ~ "South",
+      STABBR %in% c("AZ", "CO", "ID", "MT", "NV", "NM", "UT", "WY",
+                    "AK", "CA", "HI", "OR", "WA") ~ "West"
+    )
   )
 
 ggplot(
   state_net_price,
   aes(
     x = reorder(STABBR, avg_net_price),
-    y = avg_net_price
+    y = avg_net_price,
+    fill = region
   )
 ) +
   geom_col() +
   coord_flip() +
   labs(
     x = "State",
-    y = "Average annual net price ($)"
+    y = "Average annual net price ($)",
+    fill = "Region"
   )
 ```
 
-@fig-state-net-price compares the average annual net price across the 50 states. The results show noticeable differences between states. Rhode Island has the highest average net price in the cleaned data set, while New Mexico has the lowest.
+@fig-state-net-price compares average annual net prices across the 50 states, with color indicating geographic region. The Northeast includes many states with the highest average net prices, such as Rhode Island, Massachusetts, Connecticut, and Vermont. Southern states generally appear in the middle and lower portions of the chart. In contrast, Western states show substantial variation, ranging from relatively high-cost states such as Oregon and California to lower-cost states such as New Mexico and Nevada. Rhode Island has the highest average net price in the cleaned dataset, while New Mexico has the lowest. 
 
 ### States With the Highest & Lowest Average Net Prices
 
-```{r highest-net-price}
-#| label: tbl-highest-net-price
+```{r tbl-highest-net-price}
 #| tbl-cap: "Ten states with the highest average annual net prices."
 #| tbl-pos: H
 
 highest_states <- state_net_price |>
   arrange(desc(avg_net_price)) |>
-  head(10)
+  head(10) |>
+  select(STABBR, avg_net_price, number_of_colleges)
 
 knitr::kable(
   highest_states,
-  col.names = c("State", "Average Net Price ($)"),
+  col.names = c(
+    "State",
+    "Average Net Price ($)",
+    "Number of Colleges"
+  ),
   digits = 0
 )
 ```
 
-```{r}
-#| label: tbl-lowest-net-price
+```{r tbl-lowest-net-price}
 #| tbl-cap: "Ten states with the lowest average annual net prices."
 #| tbl-pos: H
 
 lowest_states <- state_net_price |>
   arrange(avg_net_price) |>
-  head(10)
+  head(10) |>
+  select(STABBR, avg_net_price, number_of_colleges)
 
 knitr::kable(
   lowest_states,
-  col.names = c("State", "Average Net Price ($)"),
+  col.names = c(
+    "State",
+    "Average Net Price ($)",
+    "Number of Colleges"
+  ),
   digits = 0
 )
 ```
 
 @tbl-highest-net-price and @tbl-lowest-net-price make differences between states easier to identify. Rhode Island has an average annual net price of about \$32,260, compared with about $13,187 in New Mexico. These values are averages across the public and private nonprofit four-year institutions included in our analysis.
 
+State averages also depend partly on the types of institutions located in each state. Because private nonprofit colleges generally have higher net prices than public colleges, a state with a larger share of private nonprofit institutions may have a higher average net price even if similar public colleges are not especially expensive. With more time, we would calculate separate state averages for public and private nonprofit colleges to distinguish institutional composition from broader geographic cost differences.
+
+### Regional Summary
+
+```{r tbl-region-summary}
+#| tbl-cap: "Summary statistics by U.S. region."
+
+# Compare cost and graduation outcomes across the four U.S. regions
+region_summary <- college_clean |>
+  mutate(
+    region = case_when(
+      STABBR %in% c("CT", "ME", "MA", "NH", "RI", "VT",
+                    "NJ", "NY", "PA") ~ "Northeast",
+
+      STABBR %in% c("IL", "IN", "MI", "OH", "WI", "IA",
+                    "KS", "MN", "MO", "NE", "ND", "SD") ~ "Midwest",
+
+      STABBR %in% c("DE", "FL", "GA", "MD", "NC", "SC",
+                    "VA", "WV", "AL", "KY", "MS", "TN",
+                    "AR", "LA", "OK", "TX") ~ "South",
+
+      STABBR %in% c("AZ", "CO", "ID", "MT", "NV", "NM",
+                    "UT", "WY", "AK", "CA", "HI", "OR",
+                    "WA") ~ "West"
+    )
+  ) |>
+  group_by(region) |>
+  summarize(
+    number_of_colleges = n(),
+    average_net_price = mean(net_price),
+    median_net_price = median(net_price),
+    average_graduation_rate = mean(graduation_rate) * 100,
+    .groups = "drop"
+  )
+
+knitr::kable(
+  region_summary,
+  col.names = c(
+    "Region",
+    "Number of Colleges",
+    "Average Net Price (USD)",
+    "Median Net Price (USD)",
+    "Average Graduation Rate (%)"
+  ),
+  digits = 1
+)
+```
+
+@tbl-region-summary shows clear differences across the four U.S. regions. The Northeast had the highest average annual net price, about \$23,298, and the highest average graduation rate, 59.4%. The West had the second-highest average net price, about \$21,969, and a similar average graduation rate of 58.8%. In contrast, the South had the lowest average net price, about \$18,754, and the lowest average graduation rate, 50.9%, while the Midwest fell between these regions on both measures.
+
+The number of colleges also varied across regions. The South contributed the most institutions to the analysis, with 532 colleges, while the West contributed the fewest, with 211. Therefore, the regional averages are based on different sample sizes and should be interpreted with that in mind. The West's average net price is also noticeably higher than its median, suggesting that some higher-cost Western institutions pull the regional average upward.
+
 ### Net Price & Graduation Rate
 
-```{r price-grad-plot}
-#| label: fig-price-grad
+```{r fig-price-grad}
 #| fig-cap: "Relationship between average annual net price and graduation rate."
 
+# Examine the relationship between net price and graduation rate
 ggplot(
   college_clean,
   aes(
@@ -161,30 +245,66 @@ ggplot(
   )
 ) +
   geom_point(alpha = 0.4) +
-  geom_smooth(method = "lm", se = FALSE) +
+  geom_smooth(method = "loess", se = TRUE) +
   labs(
     x = "Average annual net price ($)",
     y = "Graduation rate" 
   )
 ```
 
-@fig-price-grad shows a positive overall relationship between average annual net price and graduation rate. Colleges with higher net prices generally have higher graduation rates. However, the points are widely scattered around the fitted line, so net price alone does not fully explain differences in graduation rates. This relationship indicates association, not causation. 
+@fig-price-grad shows a generally positive relationship between annual net price and graduation rate, although the pattern is not perfectly linear. The 'loess' smoother suggests that graduation rates tend to increase as net price rises across much of the observed range. Still, the relationship appears to level off somewhat at the highest-cost institutions. The points remain widely scattered, and a small number of unusual institutions report graduation rates of zero. Therefore, net price alone does not fully explain differences in graduation rates. The pattern represents association, not causation. 
 
-### Average Annual Net Price by Institution Type and Graduation-Rate Group
-```{r}
+### Net Price Distributions by Institution Type & Graduation-Rate Group
+
+```{r tbl-institution-summary}
+#| tbl-cap: "Summary statistics by institution type."
+
+# Summarize cost and graduation outcomes for public and private nonprofit colleges
+institution_summary <- college_clean |>
+  group_by(institution_type) |>
+  summarize(
+    number_of_colleges = n(),
+    average_net_price = mean(net_price),
+    median_net_price = median(net_price),
+    average_graduation_rate = mean(graduation_rate) * 100,
+    .groups = "drop"
+  )
+
+knitr::kable(
+  institution_summary,
+  col.names = c(
+    "Institution Type",
+    "Number of Colleges",
+    "Average Net Price (USD)",
+    "Median Net Price (USD)",
+    "Average Graduation Rate (%)"
+  ),
+  digits = 1
+)
+```
+
+@tbl-institution-summary summarizes the number of institutions, average and median annual net prices, and average graduation rate by institution type. The table provides numerical context for the distributions shown in @fig-public-private and directly compares public and private nonprofit colleges. 
+
+```{r fig-public-private}
+#| fig-cap: "Annual net price by institution type and graduation-rate group."
+#| fig-width: 7
+#| fig-height: 5
+
+# Divide colleges into three graduation-rate groups for comparison
 q3_data <- college_clean |>
   mutate(
-    grad_rate_group = ifelse(
-      graduation_rate < 0.50,
-      "Low",
-      ifelse(
-        graduation_rate < 0.75,
-        "Medium",
-        "High"
-      )
+    grad_rate_group = case_when(
+      graduation_rate < 0.50 ~ "Below 50%",
+      graduation_rate < 0.75 ~ "50% to 74%",
+      graduation_rate >= 0.75 ~ "75% or higher"
+    ),
+    grad_rate_group = factor(
+      grad_rate_group,
+      levels = c("Below 50%", "50% to 74%", "75% or higher")
     )
   )
 
+# Compare net-price distributions by institution type and graduation-rate group
 ggplot(
   q3_data,
   aes(
@@ -195,19 +315,44 @@ ggplot(
 ) +
   geom_boxplot() +
   labs(
-    title = "Average Annual Net Price by Institution Type and Graduation Rate Group",
     x = "Institution Type",
-    y = "Average Annual Net Price ($)",
+    y = "Annual Net Price ($)",
     fill = "Graduation Rate Group"
   ) +
   theme_minimal()
 ```
-@fig-public-private compares the average annual net price of public and private nonprofit colleges while grouping institutions by graduation-rate category (low, medium, and high). Private nonprofit colleges generally have higher average annual net prices than public colleges across all graduation-rate groups. Colleges in the high graduation-rate group also tend to have higher average annual net prices than those in the medium and low graduation-rate groups. Overall, these results suggest that institution type and graduation-rate group are both associated with differences in average annual net price.
+@fig-public-private compares annual net-price distributions for public and private nonprofit colleges across three graduation-rate groups. Private nonprofit colleges have higher median net prices than public colleges in each graduation-rate group. Within both institution types, colleges in the higher graduation-rate groups also tend to have higher median net prices. The private nonprofit groups show greater variation and several high-cost outliers. These patterns indicate associations between institution type, graduation rate, and net price, but they do not show that higher prices cause higher graduation rates.
 
+## Findings / Conclusions
 
-## Preliminary Findings
+Our first research question asked how the average annual net price varies across U.S. states. The results show substantial variation. Rhode Island had the highest state average at approximately \$32,260, while New Mexico had the lowest at approximately $13,187. However, the number of colleges contributing to each state's average varies, so state comparisons should be interpreted with that in mind.
 
-Our preliminary analysis shows that the average annual net price varies substantially across states. Rhode Island had the highest state average in the cleaned data set, and New Mexico had the lowest. We also observed a positive association between net price and graduation rate, though there was considerable variation among institutions. The public-versus-private comparison for our third research question will be completed for the final report.
+Our second research question examined the relationship between annual net price and graduation rate. The scatter plot and 'loess' smoother show a generally positive association: graduation rates tend to increase as net price rises across much of the observed range. However, the relationship begins to level off at the highest-cost institutions, and considerable variation remains among colleges. Therefore, net price alone does not fully explain graduation outcomes, and the pattern should not be interpreted as evidence that higher prices cause higher graduation rates.
+
+Our third research question compared public and private nonprofit colleges. Private nonprofit colleges had higher median net prices than public colleges within each graduation-rate group. Within both institution types, colleges in the higher graduation-rate groups also tended to have higher median net prices. These findings suggest that both institution type and graduation-rate group are associated with differences in net price.
+
+## Limitations & Future Work
+
+This analysis has several limitations. First, the graduation-rate variable applies only to first-time, full-time students completing within 150% of the expected time, so it may not represent part-time students, transfer students, or other enrollment patterns. We also identified 16 specialized private nonprofit institutions with reported graduation rates of zero. We retained these values because they were reported as numeric observations, but they may influence the relationship shown in the scatter plot.
+
+Second, each institution contributes equally to its state average, regardless of enrollment size. Therefore, a small college affects the state average as much as a large university. The analysis also excludes private for-profit institutions and focuses only on predominantly bachelor's degree-granting schools, so the findings should not be generalized to all types of colleges.
+
+With more time, we could compare results using enrollment-weighted state averages, investigate the zero-graduation-rate institutions in more detail, and examine additional variables such as enrollment, student income, selectivity, or urban versus rural location. These variables may help explain why colleges with similar net prices can have different graduation rates. 
+
+## AI Use Statement
+
+Our team used ChatGPT to help organize the report, revise explanations, and troubleshoot R and Quarto code. We reviewed and tested the suggested code, verified the results against the College Scorecard documentation, and made the final decisions on the analysis and conclusions.
+
+## References
+
+U.S. Department of Education. (n.d.). *College Scorecard data*.  
+https://collegescorecard.ed.gov/data/
+
+U.S. Department of Education. (2025). *Technical documentation: College Scorecard institution-level data*.  
+https://collegescorecard.ed.gov/files/InstitutionDataDocumentation.pdf
+
+U.S. Department of Education. (2025). *College Scorecard data dictionary*.  
+https://collegescorecard.ed.gov/assets/CollegeScorecardDataDictionary.xlsx
 
 ## Code Appendix
 
